@@ -7,15 +7,24 @@ extends Node
 # ---- Web Socket ----
 var socket := WebSocketPeer.new()
 
+# ---- Last know position cache
+var last_known_positions := {}
+
 # ---- Snapshot Buffer ----
 var snapshots: Array = []
 
 # How many snapshots to keep (avoid unbounded growth)
 const MAX_SNAPSHOTS := 20
 
+# Interpolation Delay
+const INTERPOLATION_DELAY := 0.1
+
+# Track local time
+var local_time := 0.0
+
 
 func _ready():
-	print("NewtworkClient starting...")
+	print("NetworkClient READY at:", get_path())
 	connect_to_server()
 
 func connect_to_server():
@@ -28,6 +37,9 @@ func connect_to_server():
 var last_state := -1
 
 func _process(_delta):
+	# Update local time every frame
+	local_time += _delta
+	
 	# Required for WebSocket events to be processed
 	socket.poll()
 	
@@ -59,27 +71,44 @@ func _handle_message(text: String):
 	if json == null:
 		push_error("Invalid JSON received")
 		return
-	
+
+	# ✅ HANDLE CONTROL MESSAGES FIRST
+	if json.has("type") and json["type"] == "welcome":
+		get_node("/root/Main").player_id = json["playerId"]
+		print("CLIENT bound to player_id:", json["playerId"])
+		return
+
+	# ✅ THEN HANDLE SNAPSHOTS
 	if not json.has("tick"):
 		push_error("Snapshot missing tick")
 		return
-		
-		_store_snapshot(json)
+
+	for p in json["players"]:
+		p["id"] = p["Id"]
+		p["x"] = p["X"]
+		p["y"] = p["Y"]
+
+	_store_snapshot(json)
+
 
 func _store_snapshot(snapshot: Dictionary):
+	
+	snapshot["time"] = Time.get_ticks_msec() / 1000.0
 	snapshots.append(snapshot)
 	
 	# Keep snapshots ordered by tick
 	snapshots.sort_custom(func(a, b):
-		return a["tick"] < b["tick"]
+		return a["time"] < b["time"]
 		)
 	
 	# Trim buffer
 	if snapshots.size() > MAX_SNAPSHOTS:
 		snapshots.pop_front()
-	
-	print("Snapshot received (tick=%s)" % snapshot["tick"])
+	for p in snapshot["players"]:
+		last_known_positions[p["id"]] = Vector2(p["x"], p["y"])
 		
+	print("Snapshot received (tick=%s)" % snapshot["tick"])
+
 func _send_input():
 	if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
@@ -95,12 +124,7 @@ func _send_input():
 		input_y += 1
 	if Input.is_action_pressed("ui_up"):
 		input_y -= 1
-	
-	# Only send if there is actual input
-	if input_x == 0 and input_y == 0:
-		return
 		
-	print("Input:", input_x, input_y)
 	
 	var input_message := {
 		"type": "input",
@@ -110,3 +134,42 @@ func _send_input():
 	
 	var json_text := JSON.stringify(input_message)
 	socket.send_text(json_text)
+
+func get_interpolated_position(player_id: String) -> Vector2:
+	if snapshots.size() < 2:
+		return last_known_positions.get(player_id, Vector2.ZERO)
+	
+	var render_time = local_time - INTERPOLATION_DELAY
+	render_time = max(render_time, snapshots[0]["time"])
+	
+	var older
+	var newer
+	
+	for i in range(snapshots.size() - 1):
+		if snapshots[i]["time"] <= render_time and snapshots[i + 1]["time"] >= render_time:
+			older = snapshots[i]
+			newer = snapshots[i + 1]
+			break
+	
+	if older == null or newer == null:
+		return last_known_positions.get(player_id, Vector2.ZERO)
+
+	
+	var t0 = older["time"]
+	var t1 = newer["time"]
+	
+	# Guard against identical timestamps
+	if t1 == t0:
+		return last_known_positions.get(player_id, Vector2.ZERO)
+		
+	var alpha = (render_time - t0) / (t1 -t0)
+	
+	for p0 in older["players"]:
+		if p0["id"] == player_id:
+			for p1 in newer["players"]:
+				if p1["id"] == player_id:
+					return Vector2(
+						lerp(p0["x"], p1["x"], alpha),
+						lerp(p0["y"], p1["y"], alpha)
+					)
+	return last_known_positions.get(player_id, Vector2.ZERO)

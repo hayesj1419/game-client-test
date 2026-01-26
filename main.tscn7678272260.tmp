@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://u8df03v7qnlh"]
 
 [ext_resource type="Script" uid="uid://bt1ohay3mnx7l" path="res://main.gd" id="1_0xm2m"]
-[ext_resource type="Script" uid="uid://h4tw4mo0ysi8" path="res://player.gd" id="2_0xm2m"]
+[ext_resource type="Script" uid="uid://d1f0d0g3aep32" path="res://NetworkClient.gd" id="1_ig7tw"]
 
 [sub_resource type="Gradient" id="Gradient_0xm2m"]
 
@@ -12,9 +12,11 @@ gradient = SubResource("Gradient_0xm2m")
 script = ExtResource("1_0xm2m")
 
 [node name="Player" type="Node2D" parent="."]
-script = ExtResource("2_0xm2m")
-
-[node name="Camera2D" type="Camera2D" parent="Player"]
 
 [node name="Sprite2D" type="Sprite2D" parent="Player"]
 texture = SubResource("GradientTexture2D_h2yge")
+
+[node name="Camera2D" type="Camera2D" parent="Player"]
+
+[node name="NetworkClient" type="Node" parent="."]
+script = ExtResource("1_ig7tw")
