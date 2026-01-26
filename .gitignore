@@ -1,0 +1,18 @@
+# Godot 4+
+.godot/
+
+# Import cache (Godot 3.x/4.x)
+.import/
+
+# Mono (if you ever enable C# in Godot)
+.mono/
+
+# Exports
+export/
+exports/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.vs/
