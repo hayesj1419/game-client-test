@@ -1,7 +1,7 @@
 extends Node2D
 
 var predicted_offset := Vector2.ZERO
-const SPEED := 300.0
+const SPEED := 1000.0
 
 func _process(delta):
 	var dir := Vector2.ZERO
@@ -16,3 +16,4 @@ func _process(delta):
 		dir.y -= 1
 
 	predicted_offset = dir * SPEED * delta
+	

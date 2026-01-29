@@ -35,6 +35,15 @@ var prediction_tick_accumulator: float = 0.0
 var server_position := Vector2.ZERO
 var reconciliation_alpha: float = 0.15
 
+# HUD Variables
+var last_snapshot_tick: int = -1
+var last_snapshot_age_ms: float = 0.0
+var last_entity_count: int = 0
+
+var last_render_position: Vector2 = Vector2.ZERO
+var last_authoritative_position: Vector2 = Vector2.ZERO
+var last_correction_distance: float = 0.0
+
 func _ready():
 	print("NetworkClient READY at:", get_path())
 	connect_to_server()
@@ -112,6 +121,7 @@ func _handle_message(text: String):
 		p["x"] = p["X"]
 		p["y"] = p["Y"]
 
+	json["received_at_ms"] = Time.get_ticks_msec()
 	_store_snapshot(json)
 
 
@@ -135,7 +145,11 @@ func _store_snapshot(snapshot: Dictionary):
 		if p["id"] == get_node("/root/Main").player_id:
 			server_position = pos
 			has_predicted_position = true
-
+			
+	last_snapshot_tick = snapshot["tick"]
+	last_entity_count = snapshot["players"].size()
+	last_snapshot_age_ms = Time.get_ticks_msec() - snapshot["received_at_ms"]
+	
 func _send_input():
 	if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
