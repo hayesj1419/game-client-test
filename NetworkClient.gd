@@ -44,6 +44,9 @@ var last_render_position: Vector2 = Vector2.ZERO
 var last_authoritative_position: Vector2 = Vector2.ZERO
 var last_correction_distance: float = 0.0
 
+# Player declaration
+var player_id: String = ""
+
 func _ready():
 	print("NetworkClient READY at:", get_path())
 	connect_to_server()
@@ -107,7 +110,7 @@ func _handle_message(text: String):
 	# ✅ HANDLE CONTROL MESSAGES FIRST
 	if json.has("type") and json["type"] == "welcome":
 		has_predicted_position = false
-		get_node("/root/Main").player_id = json["playerId"]
+		player_id = json["playerId"]
 		print("CLIENT bound to player_id:", json["playerId"])
 		return
 
@@ -142,7 +145,7 @@ func _store_snapshot(snapshot: Dictionary):
 		last_known_positions[p["id"]] = pos
 		
 		# Seed local prediction from authoritative server state
-		if p["id"] == get_node("/root/Main").player_id:
+		if p["id"] == player_id:
 			server_position = pos
 			has_predicted_position = true
 			
@@ -169,7 +172,7 @@ func _send_input():
 	socket.send_text(JSON.stringify(input_message))
 
 func get_interpolated_position(player_id: String) -> Vector2:
-	var local_id = get_node("/root/Main").player_id
+	var local_id = player_id
 	
 	if player_id == local_id and has_predicted_position:
 		return predicted_position

@@ -1,7 +1,8 @@
-[gd_scene load_steps=5 format=3 uid="uid://u8df03v7qnlh"]
+[gd_scene load_steps=6 format=3 uid="uid://u8df03v7qnlh"]
 
 [ext_resource type="Script" uid="uid://bt1ohay3mnx7l" path="res://main.gd" id="1_0xm2m"]
 [ext_resource type="Script" uid="uid://h4tw4mo0ysi8" path="res://player.gd" id="2_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://8tw4l3jwotfl" path="res://DebugHUD.tscn" id="3_h2yge"]
 
 [sub_resource type="Gradient" id="Gradient_0xm2m"]
 
@@ -18,3 +19,5 @@ script = ExtResource("2_0xm2m")
 
 [node name="Sprite2D" type="Sprite2D" parent="Player"]
 texture = SubResource("GradientTexture2D_h2yge")
+
+[node name="DebugHud" parent="." instance=ExtResource("3_h2yge")]

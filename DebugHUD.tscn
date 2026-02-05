@@ -5,6 +5,7 @@
 [node name="DebugHud" type="CanvasLayer"]
 process_mode = 3
 script = ExtResource("1_cqkms")
+network_client_path = null
 
 [node name="PanelContainer" type="PanelContainer" parent="."]
 offset_right = 200.0

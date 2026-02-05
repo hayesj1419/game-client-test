@@ -1,9 +1,9 @@
 extends Node2D
 
-@onready var network := Network
+@onready var network := NetworkClient
 @onready var player := $Player
 
-var player_id : String = ""
+
 
 
 func _ready():
@@ -13,14 +13,14 @@ func _ready():
 
 	
 func _process(delta):
-	if player_id == "":
+	if network.player_id == "":
 		return
-	if not network.last_known_positions.has(player_id):
+	if not network.last_known_positions.has(network.player_id):
 		return
 	
-	var render_pos = network.get_interpolated_position(player_id)
+	var render_pos = network.get_interpolated_position(network.player_id)
 	
-	var server_pos = network.get_interpolated_position(player_id)
+	var server_pos = network.get_interpolated_position(network.player_id)
 	$Player/Sprite2D.position = server_pos + $Player.predicted_offset
 	
 	# --- HUD Instrumentation ---
