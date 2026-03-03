@@ -33,7 +33,11 @@ var prediction_tick_accumulator: float = 0.0
 
 # Reconciliation variables
 var server_position := Vector2.ZERO
-var reconciliation_alpha: float = 0.15
+
+# Input sequencing and buffer for reconciliation
+var _next_seq: int = 0
+var _input_buffer: Array = []
+var _last_acked_seq: int = 0
 
 # HUD Variables
 var last_snapshot_tick: int = -1
@@ -147,6 +151,7 @@ func _store_snapshot(snapshot: Dictionary):
 		# Seed local prediction from authoritative server state
 		if p["id"] == player_id:
 			server_position = pos
+			_last_acked_seq = p.get("ackedSeq", 0)
 			has_predicted_position = true
 			
 	last_snapshot_tick = snapshot["tick"]
@@ -162,13 +167,17 @@ func _send_input():
 		return
 	
 	last_sent_input = current_input
-	
+
+	_next_seq += 1
+	_input_buffer.append({"seq": _next_seq, "input": current_input, "ticks": 0})
+
 	var input_message := {
 		"type": "input",
+		"seq": _next_seq,
 		"x": int(current_input.x),
 		"y": int(current_input.y)
 	}
-	
+
 	socket.send_text(JSON.stringify(input_message))
 
 func get_interpolated_position(player_id: String) -> Vector2:
@@ -219,37 +228,38 @@ func get_interpolated_position(player_id: String) -> Vector2:
 func _apply_local_prediction(delta):
 	if not has_predicted_position:
 		return
-	
-	if current_input == Vector2.ZERO:
-		return
-	
-	# Match server constants exactly
-	var speed_per_tick: float = 0.1
-	var tick_rate: float = 20.0
-	var tick_duration := 1.0 / tick_rate
-	
-	# Accumulate frame time
+
+	var tick_duration := 1.0 / 20.0
+
 	prediction_tick_accumulator += delta
-	
+
 	while prediction_tick_accumulator >= tick_duration:
 		prediction_tick_accumulator -= tick_duration
-		
-		var input := current_input
-		# Clamp input magnitude (same rule as server)
-		if input.length() > 1:
-			input = input.normalized()
-	
-		predicted_position += input * speed_per_tick
+
+		if _input_buffer.size() > 0:
+			_input_buffer.back()["ticks"] += 1
 
 func _apply_reconciliation():
 	if not has_predicted_position:
 		return
-	
-	var error := server_position - predicted_position
-	
-	# If error is tiny, snap to avoid endless micro-jitter
-	if error.length() < 0.01:
+
+	# Discard inputs the server has already acknowledged
+	_input_buffer = _input_buffer.filter(func(e): return e["seq"] > _last_acked_seq)
+
+	# Nothing acked yet — treat server position as authoritative (backward compat)
+	if _last_acked_seq == 0:
 		predicted_position = server_position
 		return
-		
-	predicted_position += error * reconciliation_alpha
+
+	# Re-simulate from the authoritative server position using all unacked inputs
+	var sim_pos := server_position
+	var speed_per_tick: float = 0.1
+
+	for entry in _input_buffer:
+		var input: Vector2 = entry["input"]
+		if input.length() > 1:
+			input = input.normalized()
+		sim_pos += input * speed_per_tick * entry["ticks"]
+
+	last_correction_distance = sim_pos.distance_to(server_position)
+	predicted_position = sim_pos
