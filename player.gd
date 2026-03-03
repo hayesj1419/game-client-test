@@ -15,5 +15,5 @@ func _process(delta):
 	if Input.is_action_pressed("ui_up"):
 		dir.y -= 1
 
-	predicted_offset = dir * SPEED * delta
+	predicted_offset = Vector2.ZERO
 	

@@ -35,9 +35,15 @@ var prediction_tick_accumulator: float = 0.0
 var server_position := Vector2.ZERO
 
 # Input sequencing and buffer for reconciliation
+# Buffer entries: {seq, input, tick_sent} — tick_sent is the _prediction_tick when the input was sent
 var _next_seq: int = 0
 var _input_buffer: Array = []
 var _last_acked_seq: int = 0
+
+# Monotonic prediction tick counter (increments at 20 Hz in _apply_local_prediction)
+var _prediction_tick: int = 0
+# Value of _prediction_tick when the most recent new ackedSeq was received
+var _ack_received_tick: int = 0
 
 # HUD Variables
 var last_snapshot_tick: int = -1
@@ -123,11 +129,6 @@ func _handle_message(text: String):
 		push_error("Snapshot missing tick")
 		return
 
-	for p in json["players"]:
-		p["id"] = p["Id"]
-		p["x"] = p["X"]
-		p["y"] = p["Y"]
-
 	json["received_at_ms"] = Time.get_ticks_msec()
 	_store_snapshot(json)
 
@@ -151,7 +152,11 @@ func _store_snapshot(snapshot: Dictionary):
 		# Seed local prediction from authoritative server state
 		if p["id"] == player_id:
 			server_position = pos
-			_last_acked_seq = p.get("ackedSeq", 0)
+			var new_acked_seq: int = p.get("ackedSeq", 0)
+			if new_acked_seq > _last_acked_seq:
+				_last_acked_seq = new_acked_seq
+			# Reset on every snapshot so in_flight stays bounded to one snapshot interval
+			_ack_received_tick = _prediction_tick
 			has_predicted_position = true
 			
 	last_snapshot_tick = snapshot["tick"]
@@ -169,7 +174,7 @@ func _send_input():
 	last_sent_input = current_input
 
 	_next_seq += 1
-	_input_buffer.append({"seq": _next_seq, "input": current_input, "ticks": 0})
+	_input_buffer.append({"seq": _next_seq, "input": current_input, "tick_sent": _prediction_tick})
 
 	var input_message := {
 		"type": "input",
@@ -229,15 +234,11 @@ func _apply_local_prediction(delta):
 	if not has_predicted_position:
 		return
 
-	var tick_duration := 1.0 / 20.0
-
 	prediction_tick_accumulator += delta
 
-	while prediction_tick_accumulator >= tick_duration:
-		prediction_tick_accumulator -= tick_duration
-
-		if _input_buffer.size() > 0:
-			_input_buffer.back()["ticks"] += 1
+	while prediction_tick_accumulator >= 1.0 / 20.0:
+		prediction_tick_accumulator -= 1.0 / 20.0
+		_prediction_tick += 1
 
 func _apply_reconciliation():
 	if not has_predicted_position:
@@ -246,20 +247,34 @@ func _apply_reconciliation():
 	# Discard inputs the server has already acknowledged
 	_input_buffer = _input_buffer.filter(func(e): return e["seq"] > _last_acked_seq)
 
-	# Nothing acked yet — treat server position as authoritative (backward compat)
-	if _last_acked_seq == 0:
-		predicted_position = server_position
-		return
-
-	# Re-simulate from the authoritative server position using all unacked inputs
 	var sim_pos := server_position
 	var speed_per_tick: float = 0.1
 
-	for entry in _input_buffer:
-		var input: Vector2 = entry["input"]
+	# Use the buffer when we have unacked inputs with known send times.
+	# Otherwise (nothing acked yet, or all inputs acked) predict ahead using
+	# last_sent_input for the ticks elapsed since the last snapshot — this keeps
+	# in_flight bounded to one snapshot interval (~1 tick at 20 Hz).
+	if _input_buffer.size() > 0 and _last_acked_seq > 0:
+		# Re-simulate each buffer entry for the ticks it was active.
+		# Each entry runs from its tick_sent until the next entry's tick_sent (or now).
+		for i in range(_input_buffer.size()):
+			var entry = _input_buffer[i]
+			var tick_end: int = _input_buffer[i + 1]["tick_sent"] if i + 1 < _input_buffer.size() else _prediction_tick
+			var ticks: int = max(0, tick_end - (entry["tick_sent"] as int))
+			var input: Vector2 = entry["input"]
+			if input.length() > 1:
+				input = input.normalized()
+			sim_pos += input * speed_per_tick * ticks
+	else:
+		# No unacked buffer entries (or nothing acked yet) — predict ahead using
+		# last_sent_input for the ticks since the last snapshot.
+		# Include the sub-tick accumulator so this updates smoothly at frame rate,
+		# not in discrete 20 Hz steps.
+		var in_flight: float = float(_prediction_tick - _ack_received_tick) + (prediction_tick_accumulator * 20.0)
+		var input := last_sent_input
 		if input.length() > 1:
 			input = input.normalized()
-		sim_pos += input * speed_per_tick * entry["ticks"]
+		sim_pos += input * speed_per_tick * in_flight
 
 	last_correction_distance = sim_pos.distance_to(server_position)
 	predicted_position = sim_pos
